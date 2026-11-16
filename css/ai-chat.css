@@ -13,6 +13,7 @@
   display: flex;
   flex-direction: column;
   align-items: flex-end;
+  pointer-events: none;
 }
 
 /* Floating Launch Button */
@@ -31,6 +32,7 @@
   transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
   position: relative;
   outline: none;
+  pointer-events: auto;
 }
 
 .ai-chat-toggle-btn:hover {
@@ -86,6 +88,7 @@
   transform: translateY(18px) scale(0.95);
   transform-origin: bottom right;
   transition: all 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+  pointer-events: auto;
 }
 
 .ai-chat-widget.active .ai-chat-panel {
