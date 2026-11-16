@@ -15,7 +15,8 @@
 // ============================================================================
 const PROXY_URL = "https://alexanders-ai-proxy.sci-mohamedelsayed32561.workers.dev".replace(/\/+$/, "");
 let API_ENDPOINT = `${PROXY_URL}/v1beta/interactions`;
-const MODEL_NAME = "gemini-3.5-flash-lite";
+// Change: Updated model name to gemini-3.1-flash-lite for faster response times
+const MODEL_NAME = "gemini-3.1-flash-lite";
 const CONTEXT_VERSION = "v7"; // Bumped to refresh the language instructions
 const STORAGE_KEY = `sn_root_interaction_${CONTEXT_VERSION}`;
 
@@ -127,27 +128,102 @@ function buildInteractionUrl(id) {
 
 /**
  * Helper to perform fetch with automatic retry on HTTP 503 (high demand) or 429 (rate limit).
- * Automatically retries with a 1.5-second delay whenever the Gemini API returns HTTP 503 or 429.
+ * Change: Added AbortController with 15-second timeout.
  */
-async function fetchWithRetry(url, options, retries = 2) {
+async function fetchWithRetry(url, options = {}, retries = 2) {
   for (let attempt = 0; attempt <= retries; attempt++) {
+    // Change: Added AbortController with 15 second timeout per fetch
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
+
+    let fetchSignal = controller.signal;
+    if (options.signal) {
+      if (options.signal.aborted) {
+        clearTimeout(timeoutId);
+        throw new DOMException("Aborted", "AbortError");
+      }
+      options.signal.addEventListener("abort", () => controller.abort(), { once: true });
+    }
+
+    const mergedOptions = {
+      ...options,
+      signal: fetchSignal,
+    };
+
     try {
-      const response = await fetch(url, options);
+      const response = await fetch(url, mergedOptions);
+      clearTimeout(timeoutId);
+
       if ((response.status === 503 || response.status === 429) && attempt < retries) {
         console.warn(`[Alexanders AI] Received HTTP ${response.status} from Gemini API. Retrying in 1.5s (attempt ${attempt + 1}/${retries})...`);
-        await new Promise(resolve => setTimeout(resolve, 1500));
+        await new Promise((resolve) => setTimeout(resolve, 1500));
         continue;
       }
       return response;
     } catch (err) {
+      clearTimeout(timeoutId);
+
+      // Change: Handle 15-second AbortController timeout
+      if (err.name === "AbortError") {
+        console.warn(`[Alexanders AI] Fetch request timed out after 15 seconds (attempt ${attempt + 1}/${retries + 1})`);
+        if (attempt < retries) {
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+          continue;
+        }
+        throw err;
+      }
+
+      // Detect CORS preflight failures (TypeError: Failed to fetch with no response)
+      const isCorsError = err instanceof TypeError && err.message.toLowerCase().includes("failed to fetch");
+      if (isCorsError && attempt < retries) {
+        console.warn(`[Alexanders AI] Possible CORS/network error. Retrying in 2s (attempt ${attempt + 1}/${retries}):`, err.message);
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+        continue;
+      }
       if (attempt < retries) {
         console.warn(`[Alexanders AI] Network error during fetch. Retrying in 1.5s (attempt ${attempt + 1}/${retries}):`, err);
-        await new Promise(resolve => setTimeout(resolve, 1500));
+        await new Promise((resolve) => setTimeout(resolve, 1500));
         continue;
       }
       throw err;
     }
   }
+}
+
+/**
+ * Change: Keep polling logic for /v1beta/interactions/{id}.
+ * Polls GET /v1beta/interactions/{id} every 1 second, stopping after 30 seconds.
+ */
+async function pollInteraction(id, maxDurationMs = 30000, intervalMs = 1000) {
+  const startTime = Date.now();
+  const pollUrl = buildInteractionUrl(id);
+
+  while (Date.now() - startTime < maxDurationMs) {
+    // Change: Poll every 1 second
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+    try {
+      const res = await fetchWithRetry(pollUrl, {
+        method: "GET",
+        headers: {},
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const reply = extractReplyText(data);
+        // Completed when reply content exists or explicit terminal status reached
+        if (reply || data.status === "completed" || data.status === "failed") {
+          return data;
+        }
+      } else if (res.status >= 500) {
+        console.warn(`[Alexanders AI] Polling received 5xx status (HTTP ${res.status}), continuing polling...`);
+      }
+    } catch (pollErr) {
+      console.warn("[Alexanders AI] Transient error while polling interaction:", pollErr);
+    }
+  }
+  // Change: Stop after 30 seconds
+  console.warn(`[Alexanders AI] Polling stopped after ${maxDurationMs / 1000} seconds timeout.`);
+  return null;
 }
 
 /**
@@ -167,7 +243,7 @@ async function ensureContextExists() {
   if (isInitializingContext) {
     // Wait for in-flight initialization
     while (isInitializingContext) {
-      await new Promise(r => setTimeout(r, 100));
+      await new Promise((r) => setTimeout(r, 100));
     }
     if (rootInteractionId) return rootInteractionId;
   }
@@ -184,7 +260,7 @@ async function ensureContextExists() {
       try {
         const verifyRes = await fetchWithRetry(getUrl, {
           method: "GET",
-          headers: {}
+          headers: {},
         });
 
         if (verifyRes.ok) {
@@ -227,16 +303,17 @@ ${SOCIAL_NETWORK_CONTEXT}
       model: MODEL_NAME,
       input: seedInput,
       generation_config: {
-        thinking_level: "minimal"
-      }
+        thinking_level: "minimal",
+        generation_config: { max_output_tokens: 300 },
+      },
     };
 
     let seedResponse = await fetchWithRetry(API_ENDPOINT, {
       method: "POST",
       headers: {
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
       },
-      body: JSON.stringify(seedPayload)
+      body: JSON.stringify(seedPayload),
     });
 
     if (!seedResponse.ok) {
@@ -312,7 +389,7 @@ function extractReplyText(data) {
 
 /**
  * Sends a user message chained to currentInteractionId without re-uploading context.
- * Uses standard JSON POST with fast minimal thinking (under 1s responses).
+ * Uses standard JSON POST with fast minimal thinking.
  */
 async function sendUserMessage(userText) {
   if (!userText || !userText.trim()) return;
@@ -335,18 +412,32 @@ async function sendUserMessage(userText) {
       input: cleanText,
       previous_interaction_id: currentInteractionId,
       generation_config: {
-        thinking_level: "minimal"
-      }
+        thinking_level: "minimal",
+      },
     };
 
-    const res = await fetchWithRetry(API_ENDPOINT, {
+    let res = await fetchWithRetry(API_ENDPOINT, {
       method: "POST",
       headers: {
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
       },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
     });
 
+    // Change: Add one automatic retry on HTTP 503
+    if (res.status === 503) {
+      console.warn("[Alexanders AI] Received HTTP 503 from API. Performing one automatic retry in 1.5s...");
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      res = await fetchWithRetry(API_ENDPOINT, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+    }
+
+    // Change: Stop typing indicator
     hideTypingIndicator();
 
     if (!res.ok) {
@@ -354,33 +445,61 @@ async function sendUserMessage(userText) {
       console.error(`[Alexanders AI] Request failed (HTTP ${res.status}):`, errDetails);
 
       let errorMsg = `خطأ في الخادم (HTTP ${res.status})`;
-      try {
-        const parsed = JSON.parse(errDetails);
-        if (parsed.error?.message) {
-          errorMsg += `: ${parsed.error.message}`;
-        } else if (parsed.message) {
-          errorMsg += `: ${parsed.message}`;
-        }
-      } catch (parseErr) {
-        if (errDetails && errDetails.length < 200) {
-          errorMsg += `: ${errDetails}`;
-        }
-      }
 
-      if (res.status === 429) {
+      // Change: On 5xx, show clear Arabic error message
+      if (res.status >= 500 && res.status < 600) {
+        if (res.status === 503) {
+          errorMsg = "الخدمة تواجه ضغطًا مرتفعًا مؤقتًا (HTTP 503). يرجى المحاولة بعد لحظات.";
+        } else if (res.status === 504) {
+          errorMsg = "عذرًا، استغرقت الخدمة وقتًا أطول من المتوقع في الرد (HTTP 504 Gateway Timeout). يرجى المحاولة لاحقًا.";
+        } else {
+          errorMsg = `عذرًا، حدث خطأ في الخادم (HTTP ${res.status}). يرجى المحاولة لاحقًا.`;
+        }
+      } else if (res.status === 403) {
+        errorMsg = "عذرًا، خدمة المساعد الذكي غير متاحة حاليًا (خطأ في التفويض). يرجى المحاولة لاحقًا أو التواصل معنا عبر وسائل التواصل الاجتماعي.";
+      } else if (res.status === 429) {
         errorMsg = "تم تجاوز حد الاستخدام المؤقت (HTTP 429 Rate Limit). يرجى الانتظار دقيقة والمحاولة مجددًا.";
-      } else if (res.status === 503) {
-        errorMsg = "الخدمة تواجه ضغطًا مرتفعًا مؤقتًا (HTTP 503 High Demand). يرجى المحاولة بعد لحظات.";
+      } else {
+        try {
+          const parsed = JSON.parse(errDetails);
+          if (parsed.error?.message) {
+            errorMsg += `: ${parsed.error.message}`;
+          } else if (parsed.message) {
+            errorMsg += `: ${parsed.message}`;
+          }
+        } catch (parseErr) {
+          if (errDetails && errDetails.length < 200) {
+            errorMsg += `: ${errDetails}`;
+          }
+        }
       }
 
       appendMessage("system-error", errorMsg);
       return;
     }
 
-    const data = await res.json();
-    
+    let data = await res.json();
+
+    // Change: Keep polling logic for /v1beta/interactions/{id}. Poll every 1s, stop after 30s.
+    if (
+      data &&
+      data.id &&
+      (data.status === "in_progress" ||
+        data.status === "pending" ||
+        data.status === "running" ||
+        (!extractReplyText(data) && data.status !== "completed"))
+    ) {
+      console.log(`[Alexanders AI] Interaction ${data.id} in progress. Polling every 1s (max 30s)...`);
+      showTypingIndicator(); // Keep typing indicator active during polling
+      const polledData = await pollInteraction(data.id, 30000, 1000);
+      hideTypingIndicator(); // Change: Stop typing indicator after polling
+      if (polledData) {
+        data = polledData;
+      }
+    }
+
     // 3. Update current interaction ID to maintain conversation chain
-    if (data.id) {
+    if (data && data.id) {
       currentInteractionId = data.id;
     }
 
@@ -392,12 +511,21 @@ async function sendUserMessage(userText) {
       appendMessage("assistant", "تم استلام رسالتك بنجاح ولكن لم يتم إرجاع نص إجابة.");
     }
   } catch (err) {
+    // Change: Stop typing indicator on error
     hideTypingIndicator();
     console.error("[Alexanders AI] Error in sendUserMessage:", err.message || err);
-    appendMessage(
-      "system-error",
-      `تعذر إرسال الرسالة (${err.message || "Network Error"}). يرجى التحقق من الاتصال والمحاولة لاحقًا.`
-    );
+
+    let errorMsg;
+    // Change: On timeout, show Arabic error message
+    if (err.name === "AbortError") {
+      errorMsg = "عذرًا، استغرقت الاستجابة وقتًا طويلاً وتجاوزت المهلة المحددة (15 ثانية). يرجى المحاولة مرة أخرى.";
+    } else {
+      const isCorsError = err instanceof TypeError && err.message.toLowerCase().includes("failed to fetch");
+      errorMsg = isCorsError
+        ? "عذرًا، لم نتمكن من الاتصال بخدمة المساعد الذكي. قد يكون السبب مشكلة في الشبكة أو إعدادات الخادم. يرجى المحاولة لاحقًا."
+        : `تعذر إرسال الرسالة (${err.message || "Network Error"}). يرجى التحقق من الاتصال والمحاولة لاحقًا.`;
+    }
+    appendMessage("system-error", errorMsg);
   } finally {
     isSendingMessage = false;
   }
@@ -502,6 +630,7 @@ function injectChatWidgetDOM() {
 
 /**
  * Appends a message bubble to the messages list and auto-scrolls down.
+ * Preserves chat security by strictly using textContent to prevent XSS.
  */
 function appendMessage(role, text) {
   const container = document.getElementById("aiChatMessages");
@@ -512,7 +641,7 @@ function appendMessage(role, text) {
 
   const contentDiv = document.createElement("div");
   contentDiv.className = "ai-message-content";
-  contentDiv.innerText = text;
+  contentDiv.textContent = text;
 
   msgDiv.appendChild(contentDiv);
   container.appendChild(msgDiv);
@@ -531,11 +660,11 @@ function showTypingIndicator() {
   const indicator = document.createElement("div");
   indicator.id = "aiTypingIndicator";
   indicator.className = "ai-typing-indicator";
-  indicator.innerHTML = `
-    <span class="ai-typing-dot"></span>
-    <span class="ai-typing-dot"></span>
-    <span class="ai-typing-dot"></span>
-  `;
+  for (let i = 0; i < 3; i++) {
+    const dot = document.createElement("span");
+    dot.className = "ai-typing-dot";
+    indicator.appendChild(dot);
+  }
 
   container.appendChild(indicator);
   container.scrollTop = container.scrollHeight;
@@ -571,7 +700,7 @@ function bindChatEvents() {
       toggleBtn.classList.add("open");
       if (input) setTimeout(() => input.focus(), 250);
       // Lazily verify or seed context on first open in the background
-      ensureContextExists().catch(err => {
+      ensureContextExists().catch((err) => {
         console.warn("[Alexanders AI] Background context pre-check error:", err);
       });
     } else {
@@ -610,12 +739,17 @@ if (document.readyState === "loading") {
   injectChatWidgetDOM();
 }
 
-// Pre-seed context quietly in the background 1 second after page load (idle)
+// Expose appendMessage and pollInteraction for automated testing and inspection
+if (typeof window !== "undefined") {
+  window.appendMessage = appendMessage;
+  window.pollInteraction = pollInteraction;
+}
 
+// Pre-seed context quietly in the background 1 second after page load (idle)
 if (document.readyState === "complete") {
-  setTimeout(() => ensureContextExists().catch(() => {}), 1000);
+  setTimeout(() => ensureContextExists().catch(() => { }), 1000);
 } else {
   window.addEventListener("load", () => {
-    setTimeout(() => ensureContextExists().catch(() => {}), 1000);
+    setTimeout(() => ensureContextExists().catch(() => { }), 1000);
   });
 }

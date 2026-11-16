@@ -114,6 +114,7 @@ html {
   scroll-behavior: smooth;
   font-size: 16px;
   -webkit-text-size-adjust: 100%;
+  overflow-x: clip;
 }
 
 body {
@@ -122,7 +123,6 @@ body {
   color: var(--text-primary);
   direction: rtl;
   line-height: 1.8;
-  overflow-x: hidden;
   transition: background-color 0.4s cubic-bezier(0.4, 0, 0.2, 1), color 0.4s ease;
   position: relative;
 }
@@ -1622,24 +1622,24 @@ section {
 
 .fade-in-right {
   opacity: 0;
-  transform: translateX(-40px);
+  transform: translateY(20px);
   transition: opacity 0.7s cubic-bezier(0.4, 0, 0.2, 1), transform 0.7s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .fade-in-right.visible {
   opacity: 1;
-  transform: translateX(0);
+  transform: translateY(0);
 }
 
 .fade-in-left {
   opacity: 0;
-  transform: translateX(40px);
+  transform: translateY(20px);
   transition: opacity 0.7s cubic-bezier(0.4, 0, 0.2, 1), transform 0.7s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .fade-in-left.visible {
   opacity: 1;
-  transform: translateX(0);
+  transform: translateY(0);
 }
 
 /* Stagger Children Entrance */
@@ -1694,6 +1694,10 @@ section {
   .about-preview-image {
     width: 100%;
     max-height: 380px;
+  }
+
+  .about-preview-content h2 {
+    font-size: clamp(1.8rem, 5vw, 3rem);
   }
 
   .about-preview-actions {
@@ -1844,7 +1848,7 @@ section {
 
 @media (max-width: 480px) {
   .container {
-    padding: 0 20px;
+    padding: 0 16px;
   }
 
   .hero-founder-badge {
@@ -1855,5 +1859,120 @@ section {
 
   .leaders-grid {
     grid-template-columns: 1fr;
+  }
+
+  /* Prevent hero badge text from overflowing */
+  .hero-badge {
+    max-width: 100%;
+    flex-wrap: wrap;
+    justify-content: center;
+    text-align: center;
+  }
+
+  /* Constrain hero image on very small screens */
+  .hero-image img {
+    width: 200px;
+  }
+
+  /* Ensure hero title doesn't overflow */
+  .hero-title {
+    font-size: clamp(1.8rem, 8vw, 2.5rem);
+    word-break: break-word;
+  }
+
+  .hero-title .brand {
+    font-size: clamp(2rem, 10vw, 3rem);
+    letter-spacing: 0;
+  }
+
+  /* Ensure buttons don't overflow on small screens */
+  .hero-actions {
+    flex-direction: column;
+    align-items: center;
+    width: 100%;
+  }
+
+  .hero-actions .btn {
+    width: 100%;
+    max-width: 280px;
+    padding: 12px 24px;
+    font-size: 0.95rem;
+  }
+
+  /* Stats grid: 2 columns is fine, but reduce stat-number size */
+  .stat-item .stat-number {
+    font-size: 1.6rem;
+  }
+
+  .stat-item {
+    padding: 14px 10px;
+  }
+
+  /* About-preview actions */
+  .about-preview-actions {
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .about-preview-actions .btn {
+    width: 100%;
+    max-width: 280px;
+  }
+
+  /* Constrain hero-partners */
+  .hero-partners {
+    max-width: 100%;
+    flex-wrap: wrap;
+    justify-content: center;
+    padding: 10px 14px;
+  }
+
+  /* CTA box */
+  .cta-box {
+    padding: 40px 16px;
+  }
+
+  .cta-box h2 {
+    font-size: clamp(1.6rem, 6vw, 2.2rem);
+  }
+
+  .btn-cta {
+    padding: 14px 28px;
+    font-size: 0.95rem;
+  }
+
+  /* Committee cards fit viewport */
+  .committee-card {
+    flex: 0 0 260px;
+    padding: 24px 18px;
+  }
+
+  /* Footer spacing */
+  .footer .container {
+    gap: 30px;
+  }
+
+  /* Timeline adjustments */
+  .timeline-item {
+    padding-right: 40px;
+  }
+
+  .timeline-item .timeline-text .text-bubble {
+    padding: 18px 16px;
+    font-size: 0.92rem;
+  }
+
+  /* Page hero text */
+  .page-hero h1 {
+    font-size: clamp(1.8rem, 7vw, 2.6rem);
+  }
+
+  .page-hero p {
+    font-size: 0.95rem;
+  }
+
+  /* Gallery placeholder */
+  .gallery-placeholder {
+    padding: 50px 20px;
   }
 }
