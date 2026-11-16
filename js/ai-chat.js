@@ -14,9 +14,9 @@
 // 1. CONFIGURATION & CONSTANTS
 // ============================================================================
 const PROXY_URL = "https://alexanders-ai-proxy.sci-mohamedelsayed32561.workers.dev".replace(/\/+$/, "");
-let API_ENDPOINT = PROXY_URL;
+let API_ENDPOINT = `${PROXY_URL}/v1beta/interactions`;
 const MODEL_NAME = "gemini-3.5-flash-lite";
-const CONTEXT_VERSION = "v6"; // Bumped to v6 for Cloudflare Worker proxy
+const CONTEXT_VERSION = "v7"; // Bumped to refresh the language instructions
 const STORAGE_KEY = `sn_root_interaction_${CONTEXT_VERSION}`;
 
 /**
@@ -190,7 +190,6 @@ async function ensureContextExists() {
         if (verifyRes.ok) {
           const verifyData = await verifyRes.json();
           const verifiedId = verifyData.id || cachedId;
-          console.log("[Alexanders AI] Reusing verified root interaction (v1beta):", verifiedId);
           rootInteractionId = verifiedId;
           if (!currentInteractionId) currentInteractionId = verifiedId;
           isInitializingContext = false;
@@ -212,7 +211,7 @@ You are the official conversational AI assistant for "ALEXANDERS" (مجتمع أ
 You have been provided with the official comprehensive platform reference guide extracted directly from the website.
 
 MANDATORY INSTRUCTIONS:
-1. Language: Answer in the EXACT SAME language the user writes to you. If the user writes in Arabic, answer in natural, articulate Arabic. If they write in English, answer in English.
+1. Language: Answer in the EXACT SAME language the user writes to you. If the user writes in Arabic, reply purely in natural, articulate Arabic. If the user writes in English, reply purely in English with no Arabic script mixed into English sentences; translate Arabic slogans or titles into English when needed. Never mix scripts within a reply.
 2. Tone & Personality: Be warm, enthusiastic, polite, and helpful, reflecting the welcoming spirit of our student family ("عائلة طلابية بقلب واحد").
 3. Accuracy & Grounding: Base all your responses strictly and exclusively on the facts, numbers, committee leaders, events, achievements, and links listed in the Platform Reference Guide below. Do not fabricate facts.
 4. Missing Information: If the user asks about something not mentioned in the guide (such as personal phone numbers, prices, or unlisted events), politely explain that this specific information is not currently mentioned on the website, and encourage them to connect with the team via our official social links or through the "انضم إلينا" section.
@@ -239,19 +238,6 @@ ${SOCIAL_NETWORK_CONTEXT}
       },
       body: JSON.stringify(seedPayload)
     });
-
-    // Auto-detect if proxy requires /v1beta/interactions path
-    if (seedResponse.status === 404 && API_ENDPOINT === PROXY_URL) {
-      console.warn("[Alexanders AI] Proxy returned 404 at root. Retrying with /v1beta/interactions path...");
-      API_ENDPOINT = `${PROXY_URL}/v1beta/interactions`;
-      seedResponse = await fetchWithRetry(API_ENDPOINT, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify(seedPayload)
-      });
-    }
 
     if (!seedResponse.ok) {
       const errText = await seedResponse.text();
@@ -392,8 +378,7 @@ async function sendUserMessage(userText) {
     }
 
     const data = await res.json();
-    console.log("[Alexanders AI] Raw response:", data);
-
+    
     // 3. Update current interaction ID to maintain conversation chain
     if (data.id) {
       currentInteractionId = data.id;
@@ -455,7 +440,7 @@ function injectChatWidgetDOM() {
               <h3>مساعد ألكساندرز</h3>
               <div class="ai-chat-status">
                 <span class="ai-chat-status-dot"></span>
-                <span>متصل • Gemini Flash</span>
+                <span>متصل</span>
               </div>
             </div>
           </div>
@@ -496,7 +481,7 @@ function injectChatWidgetDOM() {
             </button>
           </form>
           <div class="ai-chat-footer-note">
-            <span>مدعوم بـ Google Gemini Interactions API (v1beta)</span>
+            <span>مساعد مجتمع ألكساندرز</span>
           </div>
         </div>
       </div>
@@ -626,19 +611,11 @@ if (document.readyState === "loading") {
 }
 
 // Pre-seed context quietly in the background 1 second after page load (idle)
-window.addEventListener("load", () => {
-  setTimeout(() => {
-    ensureContextExists().catch(err => {
-      console.warn("[Alexanders AI] Background idle pre-seed error:", err);
-    });
-  }, 1000);
-});
 
-// Fallback in case document is already loaded
 if (document.readyState === "complete") {
-  setTimeout(() => {
-    ensureContextExists().catch(err => {
-      console.warn("[Alexanders AI] Background idle pre-seed error:", err);
-    });
-  }, 1000);
+  setTimeout(() => ensureContextExists().catch(() => {}), 1000);
+} else {
+  window.addEventListener("load", () => {
+    setTimeout(() => ensureContextExists().catch(() => {}), 1000);
+  });
 }
