@@ -17,7 +17,7 @@ const PROXY_URL = "https://alexanders-ai-proxy.sci-mohamedelsayed32561.workers.d
 let API_ENDPOINT = `${PROXY_URL}/v1beta/interactions`;
 // Change: Updated model name to gemini-3.1-flash-lite for faster response times
 const MODEL_NAME = "gemini-3.1-flash-lite";
-const CONTEXT_VERSION = "v7"; // Bumped to refresh the language instructions
+const CONTEXT_VERSION = "v8"; // Bumped to refresh the language instructions
 const STORAGE_KEY = `sn_root_interaction_${CONTEXT_VERSION}`;
 
 /**
@@ -304,7 +304,7 @@ ${SOCIAL_NETWORK_CONTEXT}
       input: seedInput,
       generation_config: {
         thinking_level: "minimal",
-        generation_config: { max_output_tokens: 300 },
+        max_output_tokens: 300,
       },
     };
 
