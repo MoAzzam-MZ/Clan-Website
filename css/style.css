@@ -1460,6 +1460,7 @@ section {
 .timeline-item {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   margin-bottom: 70px;
   position: relative;
 }
@@ -1487,7 +1488,7 @@ section {
 }
 
 .timeline-item .timeline-image {
-  width: 44%;
+  width: calc(50% - 32px);
   border-radius: var(--radius-lg);
   overflow: hidden;
   box-shadow: var(--shadow-card);
@@ -1533,8 +1534,8 @@ section {
 }
 
 .timeline-item .timeline-text {
-  width: 44%;
-  padding: 24px;
+  width: calc(50% - 32px);
+  padding: 0;
 }
 
 .timeline-item .timeline-text .text-bubble {
