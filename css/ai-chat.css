@@ -12,12 +12,13 @@
   direction: rtl;
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
+  align-items: flex-start; /* In RTL, flex-start pins children to the far right */
   pointer-events: none;
 }
 
 /* Floating Launch Button */
 .ai-chat-toggle-btn {
+  align-self: flex-start;
   width: 58px;
   height: 58px;
   border-radius: 50%;
@@ -276,6 +277,41 @@
   color: #0f172a;
 }
 
+/* Clickable links inside chat bubbles */
+.ai-message-content a,
+.ai-chat-link {
+  color: var(--accent-cyan, #38bdf8);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  font-weight: 600;
+  word-break: break-all;
+  cursor: pointer;
+  pointer-events: auto;
+  transition: all 0.2s ease;
+}
+
+.ai-message-content a:hover,
+.ai-chat-link:hover {
+  color: #93c5fd;
+  text-decoration-color: #93c5fd;
+}
+
+.ai-message.user .ai-message-content a,
+.ai-message.user .ai-chat-link {
+  color: #ffffff;
+  text-decoration: underline;
+}
+
+[data-theme="light"] .ai-message.assistant .ai-message-content a,
+[data-theme="light"] .ai-message.assistant .ai-chat-link {
+  color: #0284c7;
+}
+
+[data-theme="light"] .ai-message.assistant .ai-message-content a:hover,
+[data-theme="light"] .ai-message.assistant .ai-chat-link:hover {
+  color: #0369a1;
+}
+
 .ai-message.system-error .ai-message-content {
   background: rgba(239, 68, 68, 0.15);
   border: 1px solid rgba(239, 68, 68, 0.35);
@@ -412,6 +448,11 @@
   .ai-chat-widget {
     bottom: 16px;
     right: 16px;
+    align-items: flex-start;
+  }
+
+  .ai-chat-toggle-btn {
+    align-self: flex-start;
   }
 
   .ai-chat-panel {

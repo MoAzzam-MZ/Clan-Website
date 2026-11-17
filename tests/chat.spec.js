@@ -124,4 +124,53 @@ test.describe('AI Chatbot & Security Tests', () => {
     await expect(errorBubble).toBeVisible();
     await expect(errorBubble).toContainText('عذرًا، خدمة المساعد الذكي غير متاحة حاليًا');
   });
+
+  test('safely renders clickable markdown links and raw URLs while stripping trailing punctuation and rejecting unsafe schemes', async ({ page }) => {
+    await page.goto('/index.html');
+    await page.locator('#aiChatToggleBtn').click();
+
+    // 1. Markdown link test
+    await page.evaluate(() => {
+      window.appendMessage('assistant', 'تابعنا على [صفحتنا على فيسبوك](https://www.facebook.com/profile.php?id=61573564592001) لمعرفة كل جديد.');
+    });
+
+    const mdLink = page.locator('.ai-message.assistant .ai-chat-link').last();
+    await expect(mdLink).toBeVisible();
+    await expect(mdLink).toHaveText('صفحتنا على فيسبوك');
+    await expect(mdLink).toHaveAttribute('href', 'https://www.facebook.com/profile.php?id=61573564592001');
+    await expect(mdLink).toHaveAttribute('target', '_blank');
+    await expect(mdLink).toHaveAttribute('rel', 'noopener noreferrer');
+
+    // 2. Raw URL with trailing period & parentheses test
+    await page.evaluate(() => {
+      window.appendMessage('assistant', 'رابط يوتيوب: (https://www.youtube.com/@alexandersgroup).');
+    });
+
+    const rawLink = page.locator('.ai-message.assistant .ai-chat-link').last();
+    await expect(rawLink).toBeVisible();
+    await expect(rawLink).toHaveAttribute('href', 'https://www.youtube.com/@alexandersgroup');
+    // Ensure the message content contains the trailing punctuation cleanly outside the link
+    const lastMsg = page.locator('.ai-message.assistant .ai-message-content').last();
+    await expect(lastMsg).toContainText(').');
+
+    // 3. Relative page links
+    await page.evaluate(() => {
+      window.appendMessage('assistant', 'يمكنك التسجيل عبر [صفحة الانضمام](join.html) أو زيارة join.html مباشرة.');
+    });
+
+    const linksInLastMsg = page.locator('.ai-message.assistant:last-child .ai-chat-link');
+    await expect(linksInLastMsg).toHaveCount(2);
+    await expect(linksInLastMsg.first()).toHaveAttribute('href', 'join.html');
+    await expect(linksInLastMsg.last()).toHaveAttribute('href', 'join.html');
+
+    // 4. Unsafe schemes (javascript: / data:) should NOT create <a> links
+    await page.evaluate(() => {
+      window.appendMessage('assistant', 'هذا رابط غير آمن [موقع](javascript:alert("hacked")) لا ينبغي تحويله.');
+    });
+
+    const unsafeMsg = page.locator('.ai-message.assistant').last();
+    const unsafeLinks = unsafeMsg.locator('a');
+    await expect(unsafeLinks).toHaveCount(0);
+    await expect(unsafeMsg).toContainText('[موقع](javascript:alert("hacked"))');
+  });
 });

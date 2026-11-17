@@ -17,7 +17,7 @@ const PROXY_URL = "https://alexanders-ai-proxy.sci-mohamedelsayed32561.workers.d
 let API_ENDPOINT = `${PROXY_URL}/v1beta/interactions`;
 // Change: Updated model name to gemini-3.1-flash-lite for faster response times
 const MODEL_NAME = "gemini-3.1-flash-lite";
-const CONTEXT_VERSION = "v8"; // Bumped to refresh the language instructions
+const CONTEXT_VERSION = "v9";
 const STORAGE_KEY = `sn_root_interaction_${CONTEXT_VERSION}`;
 
 /**
@@ -90,12 +90,14 @@ const SOCIAL_NETWORK_CONTEXT = `
 - صفحة المعرض مخصصة لاستعراض الأعمال الإبداعية لأعضاء ALEXANDERS (تصاميم فنية، مشاريع برمجية، وفيديوهات ملهمة - جاري العمل عليها وستظهر قريباً).
 
 ## 9. الانضمام والتواصل (Join & Official Channels)
-- **الانضمام إلى الكيان**: متاح عبر الضغط على أزرار "انضم إلينا" أو "يلا انضم لـ العيلة" في صفحات الموقع.
-- **صفحات الموقع**:
+- **الانضمام إلى الكيان**: متاح عبر زيارة صفحة الانضمام والتسجيل join.html أو عبر الضغط على أزرار "انضم إلينا" و"يلا انضم لـ العيلة" في صفحات الموقع.
+- **صفحات الموقع الرسمية**:
   - الرئيسية: index.html
   - من نحن: about.html
-  - قصتنا: story.html
-  - المعرض: gallery.html
+  - قصتنا ومسيرتنا: story.html
+  - اللجان وتفاصيلها: committees.html
+  - معرض المبدعين: gallery.html
+  - الانضمام والتسجيل: join.html
 - **روابط التواصل الاجتماعي الرسمية**:
   - YouTube: https://www.youtube.com/@alexandersgroup
   - LinkedIn: https://www.linkedin.com/company/alexanders-group/posts/
@@ -290,8 +292,9 @@ MANDATORY INSTRUCTIONS:
 1. Language: Answer in the EXACT SAME language the user writes to you. If the user writes in Arabic, reply purely in natural, articulate Arabic. If the user writes in English, reply purely in English with no Arabic script mixed into English sentences; translate Arabic slogans or titles into English when needed. Never mix scripts within a reply.
 2. Tone & Personality: Be warm, enthusiastic, polite, and helpful, reflecting the welcoming spirit of our student family ("عائلة طلابية بقلب واحد").
 3. Accuracy & Grounding: Base all your responses strictly and exclusively on the facts, numbers, committee leaders, events, achievements, and links listed in the Platform Reference Guide below. Do not fabricate facts.
-4. Missing Information: If the user asks about something not mentioned in the guide (such as personal phone numbers, prices, or unlisted events), politely explain that this specific information is not currently mentioned on the website, and encourage them to connect with the team via our official social links or through the "انضم إلينا" section.
-5. Confirmation: Acknowledge memorization of this guide by replying strictly with "READY.".
+4. Links & URLs: Always provide exact links from the guide below (e.g. https://www.facebook.com/profile.php?id=61573564592001, join.html). Format links cleanly as Markdown links like [اسم الرابط](URL) or plain full URLs. Do not append trailing periods, commas, or parentheses inside URLs, and never fabricate non-existent links.
+5. Missing Information: If the user asks about something not mentioned in the guide (such as personal phone numbers, prices, or unlisted events), politely explain that this specific information is not currently mentioned on the website, and encourage them to connect with the team via our official social links or through the "انضم إلينا" section.
+6. Confirmation: Acknowledge memorization of this guide by replying strictly with "READY.".
 
 ================================================================================
 ALEXANDERS PLATFORM REFERENCE GUIDE
@@ -629,8 +632,134 @@ function injectChatWidgetDOM() {
 }
 
 /**
+ * Sanitizes and validates a URL to prevent XSS (such as javascript: or data: schemes).
+ * Returns the safe URL string, or null if invalid or unsafe.
+ */
+function sanitizeUrl(url) {
+  if (!url || typeof url !== "string") return null;
+  const trimmed = url.trim();
+
+  // Allow http: and https: protocols
+  if (/^https?:\/\//i.test(trimmed)) {
+    try {
+      const parsed = new URL(trimmed);
+      if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+        return parsed.href;
+      }
+    } catch {
+      if (/^https?:\/\/[^\s"'<>]+$/i.test(trimmed)) {
+        return trimmed;
+      }
+      return null;
+    }
+  }
+
+  // Allow safe relative site pages and anchors
+  // e.g. join.html, about.html, #join, /index.html
+  if (
+    /^(\/)?(?:index|about|story|committees|gallery|join|privacy|terms)\.html(?:#[a-zA-Z0-9_-]+)?$/i.test(trimmed) ||
+    /^#[a-zA-Z0-9_-]+$/.test(trimmed)
+  ) {
+    return trimmed;
+  }
+
+  return null;
+}
+
+/**
+ * Safely parses text into DOM nodes, converting markdown links [text](url),
+ * raw web URLs (https?://...), and known site pages into clickable <a> elements
+ * while rendering all other text strictly as text nodes to guarantee XSS prevention.
+ */
+function renderMessageContent(container, text) {
+  container.textContent = "";
+  if (!text) return;
+
+  const combinedRegex =
+    /(\[([^\]]+)\]\(([^)\s]+)\))|(https?:\/\/[^\s<>"{}|\^`\[\]()]+)|(\b(?:index|about|story|committees|gallery|join|privacy|terms)\.html(?:#[a-zA-Z0-9_-]+)?\b)/gi;
+
+  let lastIndex = 0;
+  let match;
+
+  while ((match = combinedRegex.exec(text)) !== null) {
+    const matchStart = match.index;
+    const matchEnd = combinedRegex.lastIndex;
+
+    // Append preceding plain text as a safe TextNode
+    if (matchStart > lastIndex) {
+      container.appendChild(document.createTextNode(text.slice(lastIndex, matchStart)));
+    }
+
+    if (match[1]) {
+      // Markdown link: match[2] is label, match[3] is URL
+      const label = match[2];
+      const rawUrl = match[3].trim();
+      const safeUrl = sanitizeUrl(rawUrl);
+
+      if (safeUrl) {
+        const link = document.createElement("a");
+        link.className = "ai-chat-link";
+        link.textContent = label;
+        link.href = safeUrl;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        container.appendChild(link);
+      } else {
+        // Fallback to literal text if unsafe protocol
+        container.appendChild(document.createTextNode(match[0]));
+      }
+    } else if (match[4]) {
+      // Raw HTTP/HTTPS URL
+      let rawUrl = match[4];
+      // Trim trailing punctuation (.,;:!?)]} and Arabic punctuation like ، ؟ ؛
+      let trailingPunct = "";
+      const punctRegex = /[.,;:!?،؟؛)>\]]+$/;
+      const punctMatch = rawUrl.match(punctRegex);
+      if (punctMatch) {
+        trailingPunct = punctMatch[0];
+        rawUrl = rawUrl.slice(0, -trailingPunct.length);
+      }
+
+      const safeUrl = sanitizeUrl(rawUrl);
+      if (safeUrl) {
+        const link = document.createElement("a");
+        link.className = "ai-chat-link";
+        link.textContent = rawUrl;
+        link.href = safeUrl;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        container.appendChild(link);
+      } else {
+        container.appendChild(document.createTextNode(rawUrl));
+      }
+
+      if (trailingPunct) {
+        container.appendChild(document.createTextNode(trailingPunct));
+      }
+    } else if (match[5]) {
+      // Known relative page: e.g. join.html
+      const pageRef = match[5];
+      const link = document.createElement("a");
+      link.className = "ai-chat-link";
+      link.textContent = pageRef;
+      link.href = pageRef;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      container.appendChild(link);
+    }
+
+    lastIndex = matchEnd;
+  }
+
+  // Append remaining text as TextNode
+  if (lastIndex < text.length) {
+    container.appendChild(document.createTextNode(text.slice(lastIndex)));
+  }
+}
+
+/**
  * Appends a message bubble to the messages list and auto-scrolls down.
- * Preserves chat security by strictly using textContent to prevent XSS.
+ * Renders clickable links safely while strictly neutralizing any XSS payloads.
  */
 function appendMessage(role, text) {
   const container = document.getElementById("aiChatMessages");
@@ -641,7 +770,7 @@ function appendMessage(role, text) {
 
   const contentDiv = document.createElement("div");
   contentDiv.className = "ai-message-content";
-  contentDiv.textContent = text;
+  renderMessageContent(contentDiv, text);
 
   msgDiv.appendChild(contentDiv);
   container.appendChild(msgDiv);
